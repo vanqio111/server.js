@@ -1,75 +1,77 @@
 const express = require('express');
+const bodyParser = require('body-parser');
 const fs = require('fs');
-
 const app = express();
-const port = 10000;
+const PORT = 10000;
 
-app.use(express.json());  // Middleware to parse JSON requests
+// Middleware to parse JSON request bodies
+app.use(bodyParser.json());
 
-// Save the provided key along with the expiry date
-function saveKey(key, expiryDate) {
-    let keys = [];
-
-    // If keys file exists, load the current keys
-    if (fs.existsSync('keys.json')) {
-        keys = JSON.parse(fs.readFileSync('keys.json'));
-    }
-
-    // Add new key with expiry date
-    keys.push({ key, expiryDate });
-    
-    // Write back to keys.json
-    fs.writeFileSync('keys.json', JSON.stringify(keys, null, 2));
-    console.log(`Key ${key} saved with expiry date ${expiryDate}`);
-}
-
-// Route to generate a custom key with an expiry
+// Route to handle key generation
 app.post('/generate-key', (req, res) => {
-    const { key, expiryDays } = req.body;
+    const { key, expiration } = req.body;
 
-    if (!key || !expiryDays) {
-        return res.status(400).json({ message: "Please provide a key and expiration days" });
+    if (!key || !expiration) {
+        return res.status(400).json({ message: 'Key and expiration are required' });
     }
 
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + expiryDays);
+    // Load the existing keys
+    fs.readFile('keys.json', (err, data) => {
+        if (err) {
+            return res.status(500).json({ message: 'Error reading keys file' });
+        }
 
-    saveKey(key, expiryDate.toISOString());
+        let keys = [];
+        if (data.length > 0) {
+            keys = JSON.parse(data);  // Parse the existing keys if any
+        }
 
-    res.json({
-        key: key,
-        expiryDate: expiryDate.toISOString(),
-        message: "Key generated successfully"
+        // Add the new key to the keys array
+        keys.push({ key, expiration });
+
+        // Save the updated keys to the keys.json file
+        fs.writeFile('keys.json', JSON.stringify(keys, null, 2), (err) => {
+            if (err) {
+                return res.status(500).json({ message: 'Error saving keys file' });
+            }
+            res.status(200).json({ message: 'Key generated and stored successfully' });
+        });
     });
 });
 
-// Route to validate if a key is valid and not expired
+// Route to handle key validation
 app.post('/validate-key', (req, res) => {
     const { key } = req.body;
 
     if (!key) {
-        return res.status(400).json({ message: "Please provide a key to validate" });
+        return res.status(400).json({ message: 'Key is required' });
     }
 
-    const keys = fs.existsSync('keys.json') ? JSON.parse(fs.readFileSync('keys.json')) : [];
+    fs.readFile('keys.json', (err, data) => {
+        if (err) {
+            return res.status(500).json({ message: 'Error reading keys file' });
+        }
 
-    const keyData = keys.find(k => k.key === key);
-    
-    if (!keyData) {
-        return res.status(404).json({ message: "Invalid key" });
-    }
+        const keys = JSON.parse(data);
+        const keyData = keys.find(k => k.key === key);
 
-    const currentDate = new Date();
-    const expiryDate = new Date(keyData.expiryDate);
+        if (!keyData) {
+            return res.status(400).json({ message: 'Key not found' });
+        }
 
-    if (currentDate > expiryDate) {
-        return res.status(400).json({ message: "Key has expired" });
-    }
+        // Check if the key has expired
+        const currentDate = new Date();
+        const expirationDate = new Date(keyData.expiration);
+        
+        if (currentDate > expirationDate) {
+            return res.status(400).json({ message: 'Key has expired' });
+        }
 
-    res.json({ message: "Key is valid" });
+        res.status(200).json({ message: 'Key is valid' });
+    });
 });
 
 // Start the server
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
 });
