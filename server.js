@@ -1,36 +1,75 @@
-const express = require("express");
+const express = require('express');
+const fs = require('fs');
+
 const app = express();
-const port = process.env.PORT || 3000;
+const port = 10000;
 
-// Middleware to handle JSON bodies
-app.use(express.json());
+app.use(express.json());  // Middleware to parse JSON requests
 
-// Example in-memory key store (you could replace this with a DB later)
-const keyStore = {};
+// Save the provided key along with the expiry date
+function saveKey(key, expiryDate) {
+    let keys = [];
 
-// Endpoint to generate a key
-app.post("/generate-key", (req, res) => {
-  const { username } = req.body;
-  if (!username) {
-    return res.status(400).json({ error: "Username required" });
-  }
+    // If keys file exists, load the current keys
+    if (fs.existsSync('keys.json')) {
+        keys = JSON.parse(fs.readFileSync('keys.json'));
+    }
 
-  // Simple key generation (you can use more sophisticated logic)
-  const key = `key-${Math.random().toString(36).substring(2, 15)}`;
-  keyStore[username] = key;
-  res.status(200).json({ message: "Key generated", key });
+    // Add new key with expiry date
+    keys.push({ key, expiryDate });
+    
+    // Write back to keys.json
+    fs.writeFileSync('keys.json', JSON.stringify(keys, null, 2));
+    console.log(`Key ${key} saved with expiry date ${expiryDate}`);
+}
+
+// Route to generate a custom key with an expiry
+app.post('/generate-key', (req, res) => {
+    const { key, expiryDays } = req.body;
+
+    if (!key || !expiryDays) {
+        return res.status(400).json({ message: "Please provide a key and expiration days" });
+    }
+
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + expiryDays);
+
+    saveKey(key, expiryDate.toISOString());
+
+    res.json({
+        key: key,
+        expiryDate: expiryDate.toISOString(),
+        message: "Key generated successfully"
+    });
 });
 
-// Endpoint to validate a key
-app.post("/validate-key", (req, res) => {
-  const { username, key } = req.body;
-  if (keyStore[username] === key) {
-    res.status(200).json({ message: "Key is valid" });
-  } else {
-    res.status(401).json({ error: "Invalid key" });
-  }
+// Route to validate if a key is valid and not expired
+app.post('/validate-key', (req, res) => {
+    const { key } = req.body;
+
+    if (!key) {
+        return res.status(400).json({ message: "Please provide a key to validate" });
+    }
+
+    const keys = fs.existsSync('keys.json') ? JSON.parse(fs.readFileSync('keys.json')) : [];
+
+    const keyData = keys.find(k => k.key === key);
+    
+    if (!keyData) {
+        return res.status(404).json({ message: "Invalid key" });
+    }
+
+    const currentDate = new Date();
+    const expiryDate = new Date(keyData.expiryDate);
+
+    if (currentDate > expiryDate) {
+        return res.status(400).json({ message: "Key has expired" });
+    }
+
+    res.json({ message: "Key is valid" });
 });
 
+// Start the server
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
 });
